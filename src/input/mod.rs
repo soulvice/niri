@@ -2374,6 +2374,7 @@ impl State {
                 );
 
                 pointer.frame(self);
+                self.niri.cursor_scale_tracker.on_motion(false, pos);
 
                 // I guess a redraw to hide the tablet cursor could be nice? Doesn't matter too
                 // much here I think.
@@ -2462,6 +2463,7 @@ impl State {
                 );
 
                 pointer.frame(self);
+                self.niri.cursor_scale_tracker.on_motion(true, pos);
 
                 return;
             }

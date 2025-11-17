@@ -1412,6 +1412,16 @@ mod tests {
                 hide_after_inactive_ms: Some(
                     3000,
                 ),
+                shake: ShakeConfig {
+                    off: true,
+                    max_multiplier: 4.5,
+                    inactivity_timeout_ms: 250,
+                    expand_duration_ms: 200,
+                    decay_duration_ms: 300,
+                    shake_interval_ms: 400,
+                    min_diagonal: 100.0,
+                    sensitivity: 2.0,
+                },
             },
             screenshot_path: ScreenshotPath(
                 Some(

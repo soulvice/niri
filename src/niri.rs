@@ -3936,7 +3936,7 @@ impl Niri {
                 let pointer_pos =
                     (pointer_pos - hotspot.to_f64()).to_physical_precise_round(output_scale);
 
-                let texture = self.cursor_texture_cache.get(icon, pixel_size, &cursor, idx);
+                let texture = self.cursor_texture_cache.get(icon, pixel_size, scale, &cursor, idx);
                 let mut pointer_elements = vec![];
                 let pointer_element = match MemoryRenderBufferRenderElement::from_buffer(
                     renderer,

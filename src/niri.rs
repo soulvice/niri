@@ -334,7 +334,7 @@ pub struct Niri {
     /// Most recent XKB settings from org.freedesktop.locale1.
     pub xkb_from_locale1: Option<Xkb>,
 
-    pub cursor_scale: CursorScaleTracker,
+    pub cursor_scale_tracker: CursorScaleTracker,
     pub cursor_manager: CursorManager,
     pub cursor_texture_cache: CursorTextureCache,
     pub cursor_shape_manager_state: CursorShapeManagerState,

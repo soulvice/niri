@@ -135,7 +135,6 @@ impl CursorManager {
         size
     }
 
-    /// Get named cursor for the given `icon` and `scale`.
     pub fn get_cursor_with_name(&self, icon: CursorIcon, scale: i32) -> Option<Rc<XCursor>> {
         let pixel_size = self.effective_cursor_pixel_size(scale);
         self.named_cursor_cache

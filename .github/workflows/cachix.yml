@@ -1,45 +1,196 @@
-name: Build and Cache with Cachix
+name: CI
 
 on:
-  # Trigger on push to main (including merged PRs and fork merges)
   push:
-    branches:
-      - main
-  # Trigger on any pull request merge (covered by push to main)
-  # Trigger on workflow dispatch for manual runs
+  pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 1 * *' # Monthly
 
 env:
   # Set a consistent nixpkgs revision for reproducible builds
   NIXPKGS_ALLOW_UNFREE: 1
+env:
+  DEPS_APT: curl gcc clang libudev-dev libgbm-dev libxkbcommon-dev libegl1-mesa-dev libwayland-dev libinput-dev libdbus-1-dev libsystemd-dev libseat-dev libpipewire-0.3-dev libpango1.0-dev libdisplay-info-dev
+  DEPS_DNF: cargo gcc clang libudev-devel libgbm-devel libxkbcommon-devel wayland-devel libinput-devel dbus-devel systemd-devel libseat-devel pipewire-devel pango-devel cairo-gobject-devel libdisplay-info-devel
+  DEPS_APK: cargo clang-libclang eudev-dev glib-dev libdisplay-info-dev libinput-dev libseat-dev libxkbcommon-dev mesa-dev pango-dev pipewire-dev tar
+  DEPS_PKG: git curl rust llvm pkgconf pixman libudev-devd libdisplay-info seatd libinput libxkbcommon pipewire mesa-libs cairo devel/glib20 gettext-runtime harfbuzz pango
 
 jobs:
-  build-and-cache:
-    name: Build Niri with Nix and push to Cachix
-    runs-on: ubuntu-latest
+  test:
+    strategy:
+      fail-fast: false
+
+    name: test
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          # Fetch full history for proper version detection
-          fetch-depth: 0
           show-progress: false
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v27
-        with:
-          # Use latest Nix with flakes support
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-            # Optimize for CI performance
-            max-jobs = auto
-            cores = 0
-            # Allow unfree packages if needed
-            allow-unfree = true
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ${{ env.DEPS_APT }}
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build tests
+        run: cargo test --no-run --all --exclude niri-visual-tests
+
+      - name: Test
+        run: cargo test --all --exclude niri-visual-tests -- --nocapture
+
+  build:
+    strategy:
+      fail-fast: false
+
+    name: check feature combinations
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ${{ env.DEPS_APT }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check (no default features)
+        run: cargo check --no-default-features
+
+      - name: Check (just dbus)
+        run: cargo check --no-default-features --features dbus
+
+      - name: Check (just systemd)
+        run: cargo check --no-default-features --features systemd
+
+      - name: Check (just dinit)
+        run: cargo check --no-default-features --features dinit
+
+      - name: Check (just xdp-gnome-screencast)
+        run: cargo check --no-default-features --features xdp-gnome-screencast
+
+      - name: Check
+        run: cargo check
+
+      - name: Build (with profiling)
+        run: cargo build --features profile-with-tracy
+
+  # Job that runs randomized tests for a longer period of time.
+  # Also runs normal slow tests.
+  randomized-tests:
+    strategy:
+      fail-fast: false
+
+    name: randomized and slow tests
+    runs-on: ubuntu-24.04
+
+    env:
+      RUST_BACKTRACE: 1
+      RUN_SLOW_TESTS: 1
+      PROPTEST_CASES: 200000
+      PROPTEST_MAX_LOCAL_REJECTS: 200000
+      PROPTEST_MAX_GLOBAL_REJECTS: 200000
+      PROPTEST_MAX_SHRINK_ITERS: 200000
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ${{ env.DEPS_APT }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build tests
+        run: cargo test --no-run --all --exclude niri-visual-tests --release
+
+      - name: Test
+        run: cargo test --all --exclude niri-visual-tests --release
+
+  visual-tests:
+    strategy:
+      fail-fast: false
+
+    name: visual tests
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ${{ env.DEPS_APT }} libadwaita-1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --package niri-visual-tests
+
+  clippy:
+    strategy:
+      fail-fast: false
+
+    name: clippy
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ${{ env.DEPS_APT }} libadwaita-1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run clippy
+        run: cargo clippy --all --all-targets
+
+  rustfmt:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Run rustfmt
+        run: cargo fmt --all -- --check
+
+  nix:
+    runs-on: ubuntu-24.04
+    steps:
       - name: Setup Cachix
         uses: cachix/cachix-action@v15
         with:
@@ -50,64 +201,67 @@ jobs:
           # Automatically push all built paths
           pushFilter: "niri"
 
-      - name: Check Nix flake
-        run: |
-          echo "Checking Nix flake validity..."
-          nix flake check --show-trace
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          dotnet: false
+          large-packages: false
+        
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
 
-      - name: Build Niri (release)
-        run: |
-          echo "Building Niri release version with Nix..."
-          nix build .#niri --print-build-logs --show-trace
+      - name: Check flake inputs
+        uses: DeterminateSystems/flake-checker-action@v4
+        continue-on-error: true
 
-          echo "Build successful! Binary location:"
-          readlink -f result/bin/niri
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v3
+        continue-on-error: true
 
-      - name: Build Niri (debug)
-        run: |
-          echo "Building Niri debug version with Nix..."
-          nix build .#niri-debug --print-build-logs --show-trace
+      - run: nix flake check
+        continue-on-error: true
 
-      - name: Build development environment
-        run: |
-          echo "Building development environment..."
-          nix build .#devShells.x86_64-linux.default --print-build-logs --show-trace
+      
+  publish-docs:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - test
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          show-progress: false
 
-      - name: Run Nix flake checks
-        run: |
-          echo "Running all Nix flake checks..."
-          nix flake check --print-build-logs --show-trace
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+            enable-cache: true
 
-      - name: Build all flake outputs
-        run: |
-          echo "Building all available outputs..."
-          # Build all packages defined in the flake
-          for output in $(nix flake show --json | jq -r '.packages."x86_64-linux" | keys[]' 2>/dev/null || echo "niri niri-debug"); do
-            echo "Building package: $output"
-            nix build .#$output --print-build-logs --show-trace
-          done
+      - name: Install the project
+        run: uv sync --locked --all-extras --dev
+        working-directory: docs/
 
-      - name: Display build artifacts
-        run: |
-          echo "=== Build Results ==="
-          echo "Niri binary:"
-          ls -la result*/bin/niri 2>/dev/null || echo "No niri binary found"
+      - name: Generate niri documentation
+        run: uv run mkdocs build
+        working-directory: docs/
 
-          echo -e "\n=== Binary information ==="
-          if [ -f result/bin/niri ]; then
-            file result/bin/niri
-            du -h result/bin/niri
-          fi
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Verify Cachix push
-        run: |
-          echo "Verifying that built packages are available in Cachix..."
-          # The cachix-action should have automatically pushed the builds
-          echo "Build artifacts should now be cached in: ${{ vars.CACHIX_CACHE_NAME }}"
+      - name: Generate rustdoc documentation
+        run: cargo doc --no-deps -p niri-ipc
 
-          # Optional: verify specific paths are in cache
-          if command -v cachix &> /dev/null; then
-            echo "Cachix CLI available for verification"
-          else
-            echo "Cachix CLI not available, but builds should be automatically pushed"
-          fi
+      - run: mkdir -p publish/niri_ipc
+      - run: cp -r ./target/doc/* ./publish/
+      - run: cp -r ./docs/site/* ./publish/
+
+      - name: Deploy documentation
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./publish
+          force_orphan: true

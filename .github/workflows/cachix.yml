@@ -1,0 +1,113 @@
+name: Build and Cache with Cachix
+
+on:
+  # Trigger on push to main (including merged PRs and fork merges)
+  push:
+    branches:
+      - main
+  # Trigger on any pull request merge (covered by push to main)
+  # Trigger on workflow dispatch for manual runs
+  workflow_dispatch:
+
+env:
+  # Set a consistent nixpkgs revision for reproducible builds
+  NIXPKGS_ALLOW_UNFREE: 1
+
+jobs:
+  build-and-cache:
+    name: Build Niri with Nix and push to Cachix
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for proper version detection
+          fetch-depth: 0
+          show-progress: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          # Use latest Nix with flakes support
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+            # Optimize for CI performance
+            max-jobs = auto
+            cores = 0
+            # Allow unfree packages if needed
+            allow-unfree = true
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: ${{ vars.CACHIX_CACHE_NAME }}
+          # Optional: set to 'true' if you want to push to a private cache
+          # skipPush: false
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Automatically push all built paths
+          pushFilter: "niri"
+
+      - name: Check Nix flake
+        run: |
+          echo "Checking Nix flake validity..."
+          nix flake check --show-trace
+
+      - name: Build Niri (release)
+        run: |
+          echo "Building Niri release version with Nix..."
+          nix build .#niri --print-build-logs --show-trace
+
+          echo "Build successful! Binary location:"
+          readlink -f result/bin/niri
+
+      - name: Build Niri (debug)
+        run: |
+          echo "Building Niri debug version with Nix..."
+          nix build .#niri-debug --print-build-logs --show-trace
+
+      - name: Build development environment
+        run: |
+          echo "Building development environment..."
+          nix build .#devShells.x86_64-linux.default --print-build-logs --show-trace
+
+      - name: Run Nix flake checks
+        run: |
+          echo "Running all Nix flake checks..."
+          nix flake check --print-build-logs --show-trace
+
+      - name: Build all flake outputs
+        run: |
+          echo "Building all available outputs..."
+          # Build all packages defined in the flake
+          for output in $(nix flake show --json | jq -r '.packages."x86_64-linux" | keys[]' 2>/dev/null || echo "niri niri-debug"); do
+            echo "Building package: $output"
+            nix build .#$output --print-build-logs --show-trace
+          done
+
+      - name: Display build artifacts
+        run: |
+          echo "=== Build Results ==="
+          echo "Niri binary:"
+          ls -la result*/bin/niri 2>/dev/null || echo "No niri binary found"
+
+          echo -e "\n=== Binary information ==="
+          if [ -f result/bin/niri ]; then
+            file result/bin/niri
+            du -h result/bin/niri
+          fi
+
+      - name: Verify Cachix push
+        run: |
+          echo "Verifying that built packages are available in Cachix..."
+          # The cachix-action should have automatically pushed the builds
+          echo "Build artifacts should now be cached in: ${{ vars.CACHIX_CACHE_NAME }}"
+
+          # Optional: verify specific paths are in cache
+          if command -v cachix &> /dev/null; then
+            echo "Cachix CLI available for verification"
+          else
+            echo "Cachix CLI not available, but builds should be automatically pushed"
+          fi

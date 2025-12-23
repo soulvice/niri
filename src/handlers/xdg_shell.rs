@@ -267,15 +267,6 @@ impl XdgShellHandler for State {
     }
 
     fn grab(&mut self, surface: PopupSurface, _seat: WlSeat, serial: Serial) {
-        // HACK: ignore grabs (pretend they work without actually grabbing) if the input method has
-        // a grab. It will likely need refactors in Smithay to support properly since grabs just
-        // replace each other.
-        // FIXME: do this properly.
-        if self.niri.seat.input_method().keyboard_grabbed() {
-            trace!("ignoring popup grab because IME has keyboard grabbed");
-            return;
-        }
-
         let popup = PopupKind::Xdg(surface);
         let Ok(root) = find_popup_root_surface(&popup) else {
             trace!("ignoring popup grab because no root surface");
@@ -373,16 +364,23 @@ impl XdgShellHandler for State {
         let keyboard = seat.get_keyboard().unwrap();
         let pointer = seat.get_pointer().unwrap();
 
-        let can_receive_keyboard_focus = self
-            .niri
-            .layout
-            .active_output()
-            .and_then(|output| {
-                layer_map_for_output(output)
-                    .layer_for_surface(&root, WindowSurfaceType::TOPLEVEL)
-                    .map(|layer_surface| layer_surface.can_receive_keyboard_focus())
-            })
-            .unwrap_or(true);
+        // Smithay cannot do overlapping grabs, so if we have an IME keyboard grab, don't overwrite
+        // it with a popup keyboard grab. This makes the popup menu work in Telegram while an IME
+        // is active (otherwise it hits the grab mismatch check below).
+        //
+        // The second check is for layer surfaces that can't receive keyboard focus, without it
+        // popups don't work properly in Waybar (GTK 3).
+        let can_receive_keyboard_focus = !self.niri.seat.input_method().keyboard_grabbed()
+            && self
+                .niri
+                .layout
+                .active_output()
+                .and_then(|output| {
+                    layer_map_for_output(output)
+                        .layer_for_surface(&root, WindowSurfaceType::TOPLEVEL)
+                        .map(|layer_surface| layer_surface.can_receive_keyboard_focus())
+                })
+                .unwrap_or(true);
 
         let keyboard_grab_mismatches = keyboard.is_grabbed()
             && !(keyboard.has_grab(serial)
@@ -1463,7 +1461,7 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
                 span.record("serial", format!("{serial:?}"));
             }
 
-            trace!("taking pending transaction");
+            // trace!("taking pending transaction");
             if let Some(transaction) = mapped.take_pending_transaction(serial) {
                 // Transaction can be already completed if it ran past the deadline.
                 let disable = state.niri.config.borrow().debug.disable_transactions;

@@ -17,7 +17,7 @@
           cairo,
           dbus,
           libGL,
-          libdisplay-info,
+          libdisplay-info_0_3,
           libinput,
           seatd,
           libxkbcommon,
@@ -56,8 +56,6 @@
             patchShebangs resources/niri-session
             substituteInPlace resources/niri.service \
               --replace-fail 'ExecStart=niri' "ExecStart=$out/bin/niri"
-            substituteInPlace $cargoDepsCopy/libdisplay-info-sys-0.3.0/build.rs \
-              --replace-fail '"0.4.0"' '"0.5.0"'
           '';
 
           cargoLock = {
